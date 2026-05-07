@@ -1,3 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Rescate Bodoque: La Banana Perdida</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #0a0a1a;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Press Start 2P', 'Courier New', monospace;
+            overflow: hidden;
+        }
+
+        #game-wrapper {
+            position: relative;
+            width: min(800px, 100vw);
+        }
+
+        #hud {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: #111;
+            border: 3px solid #f1c40f;
+            border-bottom: none;
+            font-size: 10px;
+            color: #f1c40f;
+            letter-spacing: 1px;
+        }
+
+        #hud .lives { color: #e74c3c; }
+        #hud .level { color: #3498db; }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            border: 3px solid #f1c40f;
+            border-top: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            bottom: 15px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 15px;
+            pointer-events: none;
+        }
+
+        .d-pad { display: flex; gap: 8px; align-items: flex-end; }
+
+        .btn {
+            background: rgba(241, 196, 15, 0.2);
+            border: 2px solid #f1c40f;
+            border-radius: 8px;
+            width: 56px;
+            height: 56px;
+            font-size: 20px;
+            font-weight: bold;
+            color: #f1c40f;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            transition: background 0.1s;
+            font-family: inherit;
+            font-size: 8px;
+        }
+
+        .btn:active, .btn.pressed {
+            background: rgba(241, 196, 15, 0.6);
+            transform: scale(0.95);
+        }
+
+        #btn-jump {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: rgba(231, 76, 60, 0.3);
+            border-color: #e74c3c;
+            color: #e74c3c;
+            font-size: 12px;
+        }
+        #btn-jump:active, #btn-jump.pressed {
+            background: rgba(231, 76, 60, 0.7);
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <div id="hud">
+        <div class="lives" id="hud-lives">❤️❤️❤️</div>
+        <div id="hud-title">BODOQUE</div>
+        <div>
+            <span class="level" id="hud-level">NVL 1</span>
+            &nbsp;&nbsp;
+            <span id="hud-score">000000</span>
+        </div>
+    </div>
+    <canvas id="gameCanvas" width="800" height="420"></canvas>
+
+    <div id="ui-layer">
+        <div class="d-pad">
+            <div class="btn" id="btn-left">◀</div>
+            <div class="btn" id="btn-right">▶</div>
+        </div>
+        <div class="btn" id="btn-jump">SALTO</div>
+    </div>
+</div>
+
 <script>
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -5,16 +132,94 @@ const W = canvas.width, H = canvas.height;
 
 // ─── ESTADO GLOBAL ────────────────────────────────────────────────────
 const keys = { right: false, left: false, up: false };
-let gameState = "TITLE";
+let gameState = "TITLE"; // TITLE, PLAYING, WON, GAME_OVER, TRANSITION
 let score = 0, lives = 3, level = 1;
 let frameCount = 0;
 let particles = [];
 let transitionTimer = 0;
 let jumpPressed = false;
 
-// NUEVO
-const ACCEL = 0.8;
-const FRICTION = 0.65;
+// ─── CONFIGURACIÓN POR NIVEL ──────────────────────────────────────────
+const LEVELS = [
+    {
+        bg: ["#5c94fc","#a0c8ff"],
+        platforms: [
+            { x: 0,   y: 400, w: 800, h: 20, type:"ground" },
+            { x: 180, y: 320, w: 130, h: 14, type:"grass" },
+            { x: 370, y: 250, w: 110, h: 14, type:"grass" },
+            { x: 560, y: 170, w: 120, h: 14, type:"grass" },
+        ],
+        enemies: [
+            { x: 250, y: 370, dx: 1.8, patrol: [100, 400], type:"chapulin" },
+        ],
+        banana: { x: 605, y: 130 },
+        coins: [
+            {x:220,y:285},{x:250,y:285},{x:280,y:285},
+            {x:400,y:215},{x:430,y:215},
+            {x:580,y:135},{x:610,y:135},
+        ],
+        clouds: [{x:50,y:60,s:0.3},{x:250,y:30,s:0.2},{x:520,y:70,s:0.25},{x:680,y:40,s:0.15}],
+    },
+    {
+        bg: ["#2c1654","#6b3fa0"],
+        platforms: [
+            { x: 0,   y: 400, w: 800, h: 20, type:"ground" },
+            { x: 80,  y: 330, w: 100, h: 14, type:"stone" },
+            { x: 240, y: 260, w: 90,  h: 14, type:"stone" },
+            { x: 390, y: 190, w: 90,  h: 14, type:"stone" },
+            { x: 540, y: 120, w: 100, h: 14, type:"stone" },
+            { x: 680, y: 200, w: 80,  h: 14, type:"stone" },
+        ],
+        enemies: [
+            { x: 100, y: 370, dx: 2, patrol: [0, 350], type:"chapulin" },
+            { x: 450, y: 156, dx: 1.5, patrol: [390, 480], type:"chapulin" },
+        ],
+        banana: { x: 700, y: 155 },
+        coins: [
+            {x:100,y:295},{x:130,y:295},{x:260,y:225},{x:290,y:225},
+            {x:410,y:155},{x:440,y:155},{x:560,y:85},{x:590,y:85},
+        ],
+        clouds: [{x:100,y:50,s:0.2},{x:400,y:30,s:0.18},{x:650,y:60,s:0.22}],
+    },
+    {
+        bg: ["#8b1a1a","#ff6b35"],
+        platforms: [
+            { x: 0,   y: 400, w: 800, h: 20, type:"lava" },
+            { x: 0,   y: 320, w: 90,  h: 14, type:"stone" },
+            { x: 160, y: 280, w: 70,  h: 14, type:"stone" },
+            { x: 300, y: 220, w: 80,  h: 14, type:"stone" },
+            { x: 440, y: 160, w: 80,  h: 14, type:"stone" },
+            { x: 580, y: 100, w: 80,  h: 14, type:"stone" },
+            { x: 700, y: 160, w: 80,  h: 14, type:"stone" },
+        ],
+        enemies: [
+            { x: 200, y: 370, dx: 2.5, patrol: [90, 350], type:"chapulin" },
+            { x: 310, y: 182, dx: 2, patrol: [300, 380], type:"chapulin" },
+            { x: 590, y: 62, dx: 2, patrol: [580, 660], type:"chapulin" },
+        ],
+        banana: { x: 718, y: 118 },
+        coins: [
+            {x:20,y:285},{x:50,y:285},{x:180,y:245},{x:320,y:185},
+            {x:460,y:125},{x:600,y:65},{x:720,y:125},
+        ],
+        clouds: [{x:150,y:50,s:0.3},{x:450,y:35,s:0.2},{x:700,y:55,s:0.25}],
+    }
+];
+
+// ─── ESTADO DEL NIVEL ─────────────────────────────────────────────────
+let levelData, platforms, enemies, bananaObj, coinsArr, cloudsArr;
+
+function loadLevel(n) {
+    const d = LEVELS[n - 1] || LEVELS[LEVELS.length - 1];
+    levelData = d;
+    platforms = d.platforms.map(p => ({...p}));
+    enemies = d.enemies.map(e => ({...e, oy: e.x}));
+    bananaObj = { ...d.banana, w: 20, h: 28, collected: false, bobTimer: 0 };
+    coinsArr = d.coins.map(c => ({...c, w:14, h:14, collected:false, anim:Math.random()*Math.PI*2}));
+    cloudsArr = d.clouds.map(c => ({...c, x: c.x}));
+    particles = [];
+    resetPlayer();
+}
 
 // ─── JUGADOR ──────────────────────────────────────────────────────────
 const player = {
@@ -22,27 +227,58 @@ const player = {
     dx:0, dy:0,
     speed:4.2, jumpPower:-11,
     grounded:false,
-    invincible:0,
+    invincible:0,    // frames de invencibilidad
     facingRight:true,
     walkFrame:0, walkTimer:0,
     jumpAnim:0,
-
-    // NUEVO
-    coyoteTime:0
 };
 
+function resetPlayer() {
+    player.x = 50; player.y = 340;
+    player.dx = 0; player.dy = 0;
+    player.grounded = false;
+    player.invincible = 120;
+    player.facingRight = true;
+}
+
+// ─── PARTÍCULAS ───────────────────────────────────────────────────────
+function spawnParticles(x, y, color, count=8, speed=3) {
+    for (let i=0; i<count; i++) {
+        const angle = (Math.PI*2/count)*i + Math.random()*0.5;
+        particles.push({
+            x, y,
+            dx: Math.cos(angle)*(speed+Math.random()*2),
+            dy: Math.sin(angle)*(speed+Math.random()*2) - 1,
+            life: 40+Math.random()*20,
+            maxLife: 60,
+            color,
+            size: 3+Math.random()*4,
+        });
+    }
+}
+
+function spawnScoreParticle(x, y, text) {
+    particles.push({
+        x, y, dx:0, dy:-1.2,
+        life: 60, maxLife:60,
+        isText:true, text,
+        color:"#f1c40f",
+    });
+}
+
+// ─── FÍSICA Y COLISIONES ─────────────────────────────────────────────
+const GRAVITY = 0.5, FRICTION = 0.78;
+
+function rectOverlap(ax,ay,aw,ah, bx,by,bw,bh) {
+    return ax < bx+bw && ax+aw > bx && ay < by+bh && ay+ah > by;
+}
+
 function updatePlayer() {
+    // Movimiento horizontal
+    if (keys.right)       player.dx = player.speed;
+    else if (keys.left)   player.dx = -player.speed;
+    else                  player.dx *= FRICTION;
 
-    // ─── MOVIMIENTO MEJORADO ───
-    if (keys.right) player.dx += ACCEL;
-    else if (keys.left) player.dx -= ACCEL;
-    else player.dx *= FRICTION;
-
-    // límite de velocidad
-    if (player.dx > player.speed) player.dx = player.speed;
-    if (player.dx < -player.speed) player.dx = -player.speed;
-
-    // animación
     if (Math.abs(player.dx) > 0.1) {
         player.facingRight = player.dx > 0;
         player.walkTimer++;
@@ -51,60 +287,62 @@ function updatePlayer() {
         player.walkFrame = 0; player.walkTimer = 0;
     }
 
-    // ─── COYOTE TIME ───
-    if (player.grounded) {
-        player.coyoteTime = 8;
-    } else {
-        player.coyoteTime--;
-    }
-
-    // ─── SALTO ───
-    if (keys.up && player.coyoteTime > 0 && !jumpPressed) {
+    // Salto (solo al presionar, no mantener)
+    if (keys.up && player.grounded && !jumpPressed) {
         player.dy = player.jumpPower;
         player.grounded = false;
-        player.coyoteTime = 0;
+        player.jumpAnim = 1;
         jumpPressed = true;
         spawnParticles(player.x + player.w/2, player.y + player.h, "#fff", 5, 2);
     }
-
     if (!keys.up) jumpPressed = false;
 
-    // SALTO VARIABLE
-    if (!keys.up && player.dy < -3) {
-        player.dy *= 0.6;
-    }
-
-    // gravedad
-    player.dy += 0.5;
+    // Gravedad
+    player.dy += GRAVITY;
     if (player.dy > 14) player.dy = 14;
 
+    // Mover Y
     player.y += player.dy;
     player.grounded = false;
 
     for (let p of platforms) {
-        if (p.type === "lava") continue;
-        if (rectOverlap(player.x, player.y, player.w, player.h, p.x, p.y, p.w, p.h)) {
-            if (player.dy > 0) {
+        if (p.type === "lava") continue; // La lava solo mata, no colisiona como suelo
+        const px = p.x, py = p.y, pw = p.w, ph = p.h;
+        if (rectOverlap(player.x, player.y, player.w, player.h, px, py, pw, ph)) {
+            if (player.dy > 0 && player.y + player.h - player.dy <= py + 2) {
                 player.grounded = true;
                 player.dy = 0;
-                player.y = p.y - player.h;
+                player.y = py - player.h;
+                player.jumpAnim = 0;
+            } else if (player.dy < 0 && player.y - player.dy >= py + ph - 2) {
+                player.dy = 0;
+                player.y = py + ph;
             }
         }
     }
 
+    // Mover X
     player.x += player.dx;
-
     for (let p of platforms) {
         if (p.type === "lava") continue;
-        if (rectOverlap(player.x, player.y, player.w, player.h, p.x, p.y, p.w, p.h)) {
-            if (player.dx > 0) player.x = p.x - player.w;
-            else player.x = p.x + p.w;
+        const px = p.x, py = p.y, pw = p.w, ph = p.h;
+        if (rectOverlap(player.x, player.y, player.w, player.h, px, py, pw, ph)) {
+            if (player.dx > 0) player.x = px - player.w;
+            else if (player.dx < 0) player.x = px + pw;
             player.dx = 0;
         }
     }
 
-    if (player.y > H + 50) takeDamage();
+    // Límites
+    if (player.x < 0) player.x = 0;
+    if (player.x + player.w > W) player.x = W - player.w;
 
+    // Caer al vacío o lava
+    if (player.y > H + 50) {
+        takeDamage();
+    }
+
+    // Lava (suelo especial)
     for (let p of platforms) {
         if (p.type === "lava" && rectOverlap(player.x, player.y, player.w, player.h, p.x, p.y, p.w, p.h)) {
             takeDamage();
@@ -114,50 +352,36 @@ function updatePlayer() {
     if (player.invincible > 0) player.invincible--;
 }
 
-// ─── DAÑO MEJORADO ───
 function takeDamage() {
     if (player.invincible > 0) return;
-
     lives--;
-
-    // knockback
-    player.dy = -8;
-    player.dx = player.facingRight ? -5 : 5;
-
-    spawnParticles(player.x+player.w/2, player.y+player.h/2, "#e74c3c", 16, 4);
-
+    spawnParticles(player.x+player.w/2, player.y+player.h/2, "#e74c3c", 12, 4);
     updateHUD();
-
     if (lives <= 0) {
         gameState = "GAME_OVER";
     } else {
-        player.invincible = 60;
+        resetPlayer();
     }
 }
 
-// ─── ENEMIGOS MEJORADOS ───
+// ─── ENEMIGOS ─────────────────────────────────────────────────────────
 function updateEnemies() {
     for (let e of enemies) {
         e.x += e.dx;
-
+        // Patrulla acotada
         if (e.x < e.patrol[0]) { e.x = e.patrol[0]; e.dx = Math.abs(e.dx); }
         if (e.x + 30 > e.patrol[1]) { e.x = e.patrol[1]-30; e.dx = -Math.abs(e.dx); }
 
-        // comportamiento random
-        if (Math.random() < 0.005) e.dx *= -1;
-
+        // Colisión con jugador
         if (player.invincible <= 0 && rectOverlap(player.x, player.y, player.w, player.h, e.x, e.y, 30, 34)) {
+            // ¿El jugador cae sobre el enemigo?
             if (player.dy > 2 && player.y + player.h < e.y + 20) {
-
-                spawnParticles(e.x+15, e.y+17, "#ffcc00", 18, 4);
+                // Pisó al enemigo
+                spawnParticles(e.x+15, e.y+17, "#ffcc00", 10, 3);
                 spawnScoreParticle(e.x+15, e.y, "+200");
-
                 score += 200;
-                e.x = -200;
-
-                // rebote mejorado
-                player.dy = -9;
-
+                e.x = -200; // Sacar del nivel
+                player.dy = -7; // Rebote
                 updateHUD();
             } else {
                 takeDamage();
@@ -165,4 +389,511 @@ function updateEnemies() {
         }
     }
 }
+
+// ─── MONEDAS ──────────────────────────────────────────────────────────
+function updateCoins() {
+    for (let c of coinsArr) {
+        if (!c.collected && rectOverlap(player.x, player.y, player.w, player.h, c.x, c.y, c.w, c.h)) {
+            c.collected = true;
+            spawnParticles(c.x+7, c.y+7, "#f1c40f", 6, 2);
+            spawnScoreParticle(c.x, c.y, "+50");
+            score += 50;
+            updateHUD();
+        }
+        c.anim += 0.08;
+    }
+}
+
+// ─── BANANA ───────────────────────────────────────────────────────────
+function updateBanana() {
+    bananaObj.bobTimer += 0.07;
+    if (!bananaObj.collected && rectOverlap(player.x, player.y, player.w, player.h, bananaObj.x, bananaObj.y + Math.sin(bananaObj.bobTimer)*5, bananaObj.w, bananaObj.h)) {
+        bananaObj.collected = true;
+        spawnParticles(bananaObj.x+10, bananaObj.y+14, "#f1c40f", 16, 5);
+        score += 1000;
+        updateHUD();
+        gameState = "TRANSITION";
+        transitionTimer = 180;
+    }
+}
+
+// ─── PARTÍCULAS UPDATE ───────────────────────────────────────────────
+function updateParticles() {
+    for (let i = particles.length-1; i>=0; i--) {
+        const p = particles[i];
+        p.x += p.dx; p.y += p.dy;
+        if (!p.isText) p.dy += 0.15;
+        p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+}
+
+// ─── NUBES ────────────────────────────────────────────────────────────
+function updateClouds() {
+    for (let c of cloudsArr) {
+        c.x -= c.s;
+        if (c.x < -120) c.x = W + 60;
+    }
+}
+
+// ─── UPDATE PRINCIPAL ─────────────────────────────────────────────────
+function update() {
+    frameCount++;
+
+    if (gameState === "PLAYING") {
+        updatePlayer();
+        updateEnemies();
+        updateCoins();
+        updateBanana();
+        updateParticles();
+        updateClouds();
+    } else if (gameState === "TRANSITION") {
+        transitionTimer--;
+        updateParticles();
+        if (transitionTimer <= 0) {
+            if (level < LEVELS.length) {
+                level++;
+                loadLevel(level);
+                gameState = "PLAYING";
+                updateHUD();
+            } else {
+                gameState = "WON";
+            }
+        }
+    }
+}
+
+// ─── DIBUJO ───────────────────────────────────────────────────────────
+
+function drawPixelRect(x, y, w, h, color, borderColor) {
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(x), Math.round(y), w, h);
+    if (borderColor) {
+        ctx.fillStyle = borderColor;
+        ctx.fillRect(Math.round(x), Math.round(y), w, 2);
+        ctx.fillRect(Math.round(x), Math.round(y), 2, h);
+    }
+}
+
+function drawBackground() {
+    const [c1, c2] = levelData.bg;
+    const grad = ctx.createLinearGradient(0,0,0,H);
+    grad.addColorStop(0, c1);
+    grad.addColorStop(1, c2);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,W,H);
+
+    // Estrellas en niveles oscuros
+    if (levelData.bg[0].startsWith("#2") || levelData.bg[0].startsWith("#8")) {
+        ctx.fillStyle = "rgba(255,255,255,0.8)";
+        const stars = [[50,20],[150,60],[350,15],[500,45],[720,25],[620,70],[80,90],[440,80]];
+        for (let [sx,sy] of stars) {
+            ctx.fillRect(sx, sy, 2, 2);
+        }
+    }
+}
+
+function drawCloud(x, y) {
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillRect(Math.round(x+20), Math.round(y), 60, 22);
+    ctx.fillRect(Math.round(x+10), Math.round(y+8), 80, 22);
+    ctx.fillRect(Math.round(x),    Math.round(y+14), 100, 16);
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.fillRect(Math.round(x+10), Math.round(y+2), 50, 8);
+}
+
+function drawPlatform(p) {
+    const colors = {
+        ground: { top:"#5a3a1a", body:"#7a5a3a", hi:"#9a7a5a" },
+        grass:  { top:"#27ae60", body:"#1e8449", hi:"#2ecc71" },
+        stone:  { top:"#7f8c8d", body:"#616a6b", hi:"#95a5a6" },
+        lava:   { top:"#e74c3c", body:"#922b21", hi:"#f1948a" },
+    };
+    const c = colors[p.type] || colors.grass;
+
+    // Cuerpo
+    ctx.fillStyle = c.body;
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    // Borde superior
+    ctx.fillStyle = c.top;
+    ctx.fillRect(p.x, p.y, p.w, 5);
+    // Highlight pixelado
+    ctx.fillStyle = c.hi;
+    ctx.fillRect(p.x, p.y, p.w, 2);
+
+    // Animación de lava
+    if (p.type === "lava") {
+        ctx.fillStyle = "#f39c12";
+        const t = frameCount * 0.05;
+        for (let i=0; i<p.w; i+=16) {
+            const h2 = 3 + Math.sin(t + i*0.3) * 2;
+            ctx.fillRect(p.x+i, p.y, 8, h2);
+        }
+    }
+    // Bloques decorativos en ground
+    if (p.type === "ground") {
+        ctx.fillStyle = "rgba(0,0,0,0.12)";
+        for (let i=0; i<p.w; i+=32) {
+            ctx.fillRect(p.x+i, p.y, 2, p.h);
+        }
+    }
+}
+
+function drawCoin(c) {
+    if (c.collected) return;
+    const bob = Math.sin(c.anim) * 2;
+    const glow = 0.5 + Math.sin(c.anim)*0.3;
+    ctx.globalAlpha = glow;
+    ctx.fillStyle = "#f39c12";
+    ctx.fillRect(c.x-2, c.y+bob-2, c.w+4, c.h+4);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#f1c40f";
+    ctx.fillRect(c.x, c.y+bob, c.w, c.h);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(c.x+3, c.y+bob+3, 4, 4);
+}
+
+function drawBanana() {
+    if (bananaObj.collected) return;
+    const bob = Math.sin(bananaObj.bobTimer) * 5;
+    const bx = bananaObj.x, by = bananaObj.y + bob;
+
+    // Resplandor
+    const grd = ctx.createRadialGradient(bx+10, by+14, 2, bx+10, by+14, 22);
+    grd.addColorStop(0, "rgba(241,196,15,0.5)");
+    grd.addColorStop(1, "rgba(241,196,15,0)");
+    ctx.fillStyle = grd;
+    ctx.fillRect(bx-12, by-12, 44, 54);
+
+    // Banana pixelada (forma curvada con rectángulos)
+    ctx.fillStyle = "#f1c40f";
+    ctx.fillRect(bx+4, by,    12, 4);
+    ctx.fillRect(bx+2, by+4,  16, 4);
+    ctx.fillRect(bx,   by+8,  18, 4);
+    ctx.fillRect(bx,   by+12, 16, 4);
+    ctx.fillRect(bx+2, by+16, 12, 4);
+    ctx.fillRect(bx+4, by+20, 8,  4);
+    ctx.fillRect(bx+6, by+24, 4,  4);
+    // Highlight
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(bx+6, by+2, 4, 4);
+}
+
+function drawEnemy(e) {
+    if (e.x < -100) return;
+    const facing = e.dx > 0 ? 1 : -1;
+    const walk = Math.floor(frameCount/8) % 2;
+    const ex = Math.round(e.x), ey = Math.round(e.y);
+
+    // Cuerpo principal (Chapulín - rojo oscuro)
+    ctx.fillStyle = "#900C3F";
+    ctx.fillRect(ex, ey, 30, 30);
+    // Highlight
+    ctx.fillStyle = "#c0103e";
+    ctx.fillRect(ex, ey, 30, 4);
+    ctx.fillRect(ex, ey, 4, 30);
+
+    // Ojos
+    ctx.fillStyle = "white";
+    ctx.fillRect(ex+6, ey+6, 7, 7);
+    ctx.fillRect(ex+17, ey+6, 7, 7);
+    ctx.fillStyle = "black";
+    const ex2 = facing > 0 ? 2 : 0;
+    ctx.fillRect(ex+6+ex2, ey+8, 4, 4);
+    ctx.fillRect(ex+17+ex2, ey+8, 4, 4);
+
+    // Antenas
+    ctx.fillStyle = "#ffcc00";
+    ctx.fillRect(ex+7, ey-12, 4, 12);
+    ctx.fillRect(ex+19, ey-12, 4, 12);
+    ctx.fillRect(ex+5, ey-14, 8, 4);
+    ctx.fillRect(ex+17, ey-14, 8, 4);
+
+    // Patas animadas
+    ctx.fillStyle = "#900C3F";
+    if (walk === 0) {
+        ctx.fillRect(ex+2, ey+30, 8, 8);
+        ctx.fillRect(ex+20, ey+26, 8, 8);
+    } else {
+        ctx.fillRect(ex+2, ey+26, 8, 8);
+        ctx.fillRect(ex+20, ey+30, 8, 8);
+    }
+}
+
+function drawPlayer() {
+    const px = Math.round(player.x), py = Math.round(player.y);
+    const blink = player.invincible > 0 && Math.floor(player.invincible/4) % 2 === 0;
+    if (blink) { ctx.globalAlpha = 0.3; }
+
+    const dir = player.facingRight ? 1 : -1;
+    const walk = player.walkFrame;
+
+    // Sombra
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.fillRect(px+2, py+player.h, player.w-4, 6);
+
+    // Orejas de conejo
+    ctx.fillStyle = "#c0392b";
+    ctx.fillRect(px+5, py-18, 7, 18);
+    ctx.fillRect(px+16, py-18, 7, 18);
+    ctx.fillStyle = "#f1948a";
+    ctx.fillRect(px+7, py-16, 3, 14);
+    ctx.fillRect(px+18, py-16, 3, 14);
+
+    // Cuerpo
+    ctx.fillStyle = "#e74c3c";
+    ctx.fillRect(px, py, player.w, player.h);
+    ctx.fillStyle = "#c0392b";
+    ctx.fillRect(px, py, player.w, 4);
+    ctx.fillRect(px, py, 4, player.h);
+
+    // Cara
+    ctx.fillStyle = "white";
+    const eyeX = player.facingRight ? px+14 : px+6;
+    ctx.fillRect(eyeX, py+8, 7, 7);
+    ctx.fillStyle = "black";
+    const pupilX = player.facingRight ? eyeX+2 : eyeX+1;
+    ctx.fillRect(pupilX, py+10, 4, 4);
+
+    // Boca (sonrisa o gesto de salto)
+    ctx.fillStyle = "#c0392b";
+    if (player.jumpAnim) {
+        ctx.fillRect(px+7, py+20, 10, 3);
+    } else {
+        ctx.fillRect(px+8, py+22, 3, 3);
+        ctx.fillRect(px+14, py+22, 3, 3);
+        ctx.fillRect(px+11, py+24, 6, 3);
+    }
+
+    // Pies
+    ctx.fillStyle = "#922b21";
+    if (!player.grounded) {
+        ctx.fillRect(px+2, py+player.h, 10, 6);
+        ctx.fillRect(px+16, py+player.h, 10, 6);
+    } else if (walk) {
+        ctx.fillRect(px, py+player.h, 12, 7);
+        ctx.fillRect(px+18, py+player.h-3, 10, 7);
+    } else {
+        ctx.fillRect(px+2, py+player.h, 10, 7);
+        ctx.fillRect(px+16, py+player.h, 10, 7);
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+function drawParticles() {
+    for (let p of particles) {
+        const a = p.life / p.maxLife;
+        ctx.globalAlpha = a;
+        if (p.isText) {
+            ctx.fillStyle = p.color;
+            ctx.font = "bold 12px 'Press Start 2P', monospace";
+            ctx.textAlign = "center";
+            ctx.fillText(p.text, p.x, p.y);
+            ctx.textAlign = "left";
+        } else {
+            ctx.fillStyle = p.color;
+            ctx.fillRect(Math.round(p.x - p.size/2), Math.round(p.y - p.size/2), p.size, p.size);
+        }
+    }
+    ctx.globalAlpha = 1;
+}
+
+function drawOverlay() {
+    if (gameState === "TITLE") {
+        ctx.fillStyle = "rgba(0,0,0,0.75)";
+        ctx.fillRect(0,0,W,H);
+
+        ctx.fillStyle = "#f1c40f";
+        ctx.font = "28px 'Press Start 2P', monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("RESCATE BODOQUE", W/2, 130);
+        ctx.font = "11px 'Press Start 2P', monospace";
+        ctx.fillStyle = "#fff";
+        ctx.fillText("LA BANANA PERDIDA", W/2, 165);
+
+        ctx.font = "9px 'Press Start 2P', monospace";
+        ctx.fillStyle = "#aaa";
+        ctx.fillText("PISA ENEMIGOS PARA DERROTARLOS", W/2, 230);
+        ctx.fillText("RECOGE MONEDAS Y RESCATA LA BANANA", W/2, 250);
+
+        ctx.fillStyle = Math.floor(frameCount/20)%2===0 ? "#f1c40f" : "#fff";
+        ctx.font = "11px 'Press Start 2P', monospace";
+        ctx.fillText("PRESIONA SALTO PARA COMENZAR", W/2, 310);
+        ctx.textAlign = "left";
+
+    } else if (gameState === "TRANSITION") {
+        if (transitionTimer > 120) {
+            ctx.fillStyle = "rgba(0,0,0,0.7)";
+            ctx.fillRect(0,0,W,H);
+            ctx.fillStyle = "#f1c40f";
+            ctx.font = "22px 'Press Start 2P', monospace";
+            ctx.textAlign = "center";
+            ctx.fillText("¡BANANA RECUPERADA!", W/2, 180);
+            ctx.fillStyle = "#fff";
+            ctx.font = "11px 'Press Start 2P', monospace";
+            ctx.fillText("+1000 PUNTOS", W/2, 210);
+            if (level < LEVELS.length) {
+                ctx.fillStyle = "#3498db";
+                ctx.fillText(`NIVEL ${level+1} CARGANDO...`, W/2, 260);
+            }
+            ctx.textAlign = "left";
+        }
+
+    } else if (gameState === "GAME_OVER") {
+        ctx.fillStyle = "rgba(0,0,0,0.8)";
+        ctx.fillRect(0,0,W,H);
+        ctx.fillStyle = "#e74c3c";
+        ctx.font = "28px 'Press Start 2P', monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("CHAPULINADO!", W/2, 160);
+        ctx.font = "11px 'Press Start 2P', monospace";
+        ctx.fillStyle = "#fff";
+        ctx.fillText("GAME OVER", W/2, 200);
+        ctx.fillText(`PUNTUACION: ${String(score).padStart(6,"0")}`, W/2, 240);
+        ctx.fillStyle = Math.floor(frameCount/20)%2===0 ? "#f1c40f" : "#888";
+        ctx.fillText("SALTO PARA REINICIAR", W/2, 300);
+        ctx.textAlign = "left";
+
+    } else if (gameState === "WON") {
+        ctx.fillStyle = "rgba(0,0,20,0.85)";
+        ctx.fillRect(0,0,W,H);
+        ctx.fillStyle = "#f1c40f";
+        ctx.font = "22px 'Press Start 2P', monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("¡MISION CUMPLIDA!", W/2, 150);
+        ctx.fillStyle = "#fff";
+        ctx.font = "9px 'Press Start 2P', monospace";
+        ctx.fillText("BODOQUE HA RECUPERADO TODAS", W/2, 195);
+        ctx.fillText("LAS BANANAS DEL MUNDO", W/2, 215);
+        ctx.font = "11px 'Press Start 2P', monospace";
+        ctx.fillStyle = "#f1c40f";
+        ctx.fillText(`PUNTUACION FINAL: ${String(score).padStart(6,"0")}`, W/2, 260);
+        ctx.fillStyle = Math.floor(frameCount/20)%2===0 ? "#f1c40f" : "#888";
+        ctx.fillText("SALTO PARA JUGAR DE NUEVO", W/2, 320);
+        ctx.textAlign = "left";
+    }
+}
+
+function draw() {
+    ctx.clearRect(0,0,W,H);
+    drawBackground();
+
+    // Nubes
+    for (let c of cloudsArr) drawCloud(c.x, c.y * H / 100);
+
+    // Plataformas
+    for (let p of platforms) drawPlatform(p);
+
+    // Monedas
+    for (let c of coinsArr) drawCoin(c);
+
+    // Banana
+    drawBanana();
+
+    // Enemigos
+    for (let e of enemies) drawEnemy(e);
+
+    // Jugador
+    drawPlayer();
+
+    // Partículas
+    drawParticles();
+
+    // Overlay (título, game over, etc.)
+    drawOverlay();
+
+    // Mini HUD en canvas
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(0, 0, W, 24);
+    ctx.fillStyle = "#f1c40f";
+    ctx.font = "9px 'Press Start 2P', monospace";
+    ctx.fillText(`NVL ${level}/${LEVELS.length}`, 10, 16);
+    ctx.fillText(`SCORE ${String(score).padStart(6,"0")}`, W/2 - 60, 16);
+    ctx.fillStyle = "#e74c3c";
+    ctx.fillText("❤".repeat(lives) + "🖤".repeat(Math.max(0,3-lives)), W-80, 16);
+}
+
+// ─── HUD EXTERNO ──────────────────────────────────────────────────────
+function updateHUD() {
+    document.getElementById("hud-lives").textContent = "❤️".repeat(Math.max(0,lives)) + "🖤".repeat(Math.max(0,3-lives));
+    document.getElementById("hud-level").textContent = `NVL ${level}`;
+    document.getElementById("hud-score").textContent = String(score).padStart(6,"0");
+}
+
+// ─── GAME LOOP ────────────────────────────────────────────────────────
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+// ─── INICIO / REINICIO ────────────────────────────────────────────────
+function startGame() {
+    score = 0; lives = 3; level = 1;
+    loadLevel(1);
+    gameState = "PLAYING";
+    updateHUD();
+}
+
+// Arrancar desde título — salto para continuar
+window.addEventListener("keydown", (e) => {
+    if (e.code === "ArrowRight") keys.right = true;
+    if (e.code === "ArrowLeft")  keys.left = true;
+    if (e.code === "ArrowUp" || e.code === "Space") {
+        keys.up = true;
+        if (gameState === "TITLE" || gameState === "GAME_OVER" || gameState === "WON") {
+            startGame();
+        }
+    }
+});
+window.addEventListener("keyup", (e) => {
+    if (e.code === "ArrowRight") keys.right = false;
+    if (e.code === "ArrowLeft")  keys.left = false;
+    if (e.code === "ArrowUp" || e.code === "Space") keys.up = false;
+});
+
+// Botones táctiles
+const btnLeft  = document.getElementById("btn-left");
+const btnRight = document.getElementById("btn-right");
+const btnJump  = document.getElementById("btn-jump");
+
+function addTouch(el, key) {
+    el.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        el.classList.add("pressed");
+        keys[key] = true;
+        if (key === "up" && (gameState === "TITLE" || gameState === "GAME_OVER" || gameState === "WON")) startGame();
+    }, {passive:false});
+    el.addEventListener("touchend", (e) => {
+        e.preventDefault();
+        el.classList.remove("pressed");
+        keys[key] = false;
+    }, {passive:false});
+    el.addEventListener("mousedown", () => {
+        el.classList.add("pressed");
+        keys[key] = true;
+        if (key === "up" && (gameState === "TITLE" || gameState === "GAME_OVER" || gameState === "WON")) startGame();
+    });
+    el.addEventListener("mouseup", () => {
+        el.classList.remove("pressed");
+        keys[key] = false;
+    });
+}
+
+addTouch(btnLeft,  "left");
+addTouch(btnRight, "right");
+addTouch(btnJump,  "up");
+
+// Inicializar nubes para el título
+levelData = LEVELS[0];
+cloudsArr = LEVELS[0].clouds.map(c => ({...c}));
+platforms = LEVELS[0].platforms.map(p=>({...p}));
+enemies = [];
+bananaObj = { ...LEVELS[0].banana, w:20, h:28, collected:false, bobTimer:0 };
+coinsArr = [];
+
+gameLoop();
 </script>
+</body>
+</html>
