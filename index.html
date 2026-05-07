@@ -1,0 +1,168 @@
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const W = canvas.width, H = canvas.height;
+
+// ─── ESTADO GLOBAL ────────────────────────────────────────────────────
+const keys = { right: false, left: false, up: false };
+let gameState = "TITLE";
+let score = 0, lives = 3, level = 1;
+let frameCount = 0;
+let particles = [];
+let transitionTimer = 0;
+let jumpPressed = false;
+
+// NUEVO
+const ACCEL = 0.8;
+const FRICTION = 0.65;
+
+// ─── JUGADOR ──────────────────────────────────────────────────────────
+const player = {
+    x:50, y:340, w:28, h:38,
+    dx:0, dy:0,
+    speed:4.2, jumpPower:-11,
+    grounded:false,
+    invincible:0,
+    facingRight:true,
+    walkFrame:0, walkTimer:0,
+    jumpAnim:0,
+
+    // NUEVO
+    coyoteTime:0
+};
+
+function updatePlayer() {
+
+    // ─── MOVIMIENTO MEJORADO ───
+    if (keys.right) player.dx += ACCEL;
+    else if (keys.left) player.dx -= ACCEL;
+    else player.dx *= FRICTION;
+
+    // límite de velocidad
+    if (player.dx > player.speed) player.dx = player.speed;
+    if (player.dx < -player.speed) player.dx = -player.speed;
+
+    // animación
+    if (Math.abs(player.dx) > 0.1) {
+        player.facingRight = player.dx > 0;
+        player.walkTimer++;
+        if (player.walkTimer > 8) { player.walkFrame ^= 1; player.walkTimer = 0; }
+    } else {
+        player.walkFrame = 0; player.walkTimer = 0;
+    }
+
+    // ─── COYOTE TIME ───
+    if (player.grounded) {
+        player.coyoteTime = 8;
+    } else {
+        player.coyoteTime--;
+    }
+
+    // ─── SALTO ───
+    if (keys.up && player.coyoteTime > 0 && !jumpPressed) {
+        player.dy = player.jumpPower;
+        player.grounded = false;
+        player.coyoteTime = 0;
+        jumpPressed = true;
+        spawnParticles(player.x + player.w/2, player.y + player.h, "#fff", 5, 2);
+    }
+
+    if (!keys.up) jumpPressed = false;
+
+    // SALTO VARIABLE
+    if (!keys.up && player.dy < -3) {
+        player.dy *= 0.6;
+    }
+
+    // gravedad
+    player.dy += 0.5;
+    if (player.dy > 14) player.dy = 14;
+
+    player.y += player.dy;
+    player.grounded = false;
+
+    for (let p of platforms) {
+        if (p.type === "lava") continue;
+        if (rectOverlap(player.x, player.y, player.w, player.h, p.x, p.y, p.w, p.h)) {
+            if (player.dy > 0) {
+                player.grounded = true;
+                player.dy = 0;
+                player.y = p.y - player.h;
+            }
+        }
+    }
+
+    player.x += player.dx;
+
+    for (let p of platforms) {
+        if (p.type === "lava") continue;
+        if (rectOverlap(player.x, player.y, player.w, player.h, p.x, p.y, p.w, p.h)) {
+            if (player.dx > 0) player.x = p.x - player.w;
+            else player.x = p.x + p.w;
+            player.dx = 0;
+        }
+    }
+
+    if (player.y > H + 50) takeDamage();
+
+    for (let p of platforms) {
+        if (p.type === "lava" && rectOverlap(player.x, player.y, player.w, player.h, p.x, p.y, p.w, p.h)) {
+            takeDamage();
+        }
+    }
+
+    if (player.invincible > 0) player.invincible--;
+}
+
+// ─── DAÑO MEJORADO ───
+function takeDamage() {
+    if (player.invincible > 0) return;
+
+    lives--;
+
+    // knockback
+    player.dy = -8;
+    player.dx = player.facingRight ? -5 : 5;
+
+    spawnParticles(player.x+player.w/2, player.y+player.h/2, "#e74c3c", 16, 4);
+
+    updateHUD();
+
+    if (lives <= 0) {
+        gameState = "GAME_OVER";
+    } else {
+        player.invincible = 60;
+    }
+}
+
+// ─── ENEMIGOS MEJORADOS ───
+function updateEnemies() {
+    for (let e of enemies) {
+        e.x += e.dx;
+
+        if (e.x < e.patrol[0]) { e.x = e.patrol[0]; e.dx = Math.abs(e.dx); }
+        if (e.x + 30 > e.patrol[1]) { e.x = e.patrol[1]-30; e.dx = -Math.abs(e.dx); }
+
+        // comportamiento random
+        if (Math.random() < 0.005) e.dx *= -1;
+
+        if (player.invincible <= 0 && rectOverlap(player.x, player.y, player.w, player.h, e.x, e.y, 30, 34)) {
+            if (player.dy > 2 && player.y + player.h < e.y + 20) {
+
+                spawnParticles(e.x+15, e.y+17, "#ffcc00", 18, 4);
+                spawnScoreParticle(e.x+15, e.y, "+200");
+
+                score += 200;
+                e.x = -200;
+
+                // rebote mejorado
+                player.dy = -9;
+
+                updateHUD();
+            } else {
+                takeDamage();
+            }
+        }
+    }
+}
+</script>
